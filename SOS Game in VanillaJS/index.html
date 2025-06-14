@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOS</title>
+    <style type="text/css">
+        canvas#c {
+            border: 1px dotted #000;
+            -webkit-tap-highlight-color: transparent;
+        }
+        * {
+            padding: 0;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <canvas id='SOSGame'></canvas>
+    </div>
+    <script type="text/javascript" src='script.js'></script>
+    <script>loadSOSGame('SOSGame', Math.min(window.innerHeight, window.innerWidth));</script>
+</body>
+</html>
