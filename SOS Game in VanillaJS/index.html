@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SOS</title>
+    <title>SOS: Elementals</title>
     <style type="text/css">
         canvas#c {
             border: 1px dotted #000;
@@ -19,6 +19,11 @@
     <div>
         <canvas id='SOSGame'></canvas>
     </div>
+    <div id="container" style="display: flex; gap: 20px;">
+        <canvas id="sosCanvas"></canvas>
+        <div id="legend-container"></div>
+    </div>
+
     <script type="text/javascript" src='script.js'></script>
     <script>loadSOSGame('SOSGame', Math.min(window.innerHeight, window.innerWidth));</script>
 </body>
