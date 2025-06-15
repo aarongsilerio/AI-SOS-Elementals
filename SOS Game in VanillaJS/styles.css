@@ -1,0 +1,95 @@
+canvas #c {
+  border: 1px dotted #000;
+  -webkit-tap-highlight-color: transparent;
+  
+}
+
+* {
+    padding: 0;
+    margin: 0;
+}
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  width: 50dvh;
+  margin-top: 50px;
+}
+
+.logo {
+  max-width: 30dvh;
+}
+
+.effects {
+    padding: 20px;
+    font-family: Arial, sans-serif;
+    border-radius: 5px;
+    color: #ffffff;
+    gap: 20px;
+}
+
+.effect .title-effect {
+    margin-bottom: 20px;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.legend-list {
+    font-size: 14px;;
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.legend-list li {
+    margin-bottom: 10px;
+}
+
+#container {
+    display: flex; 
+    flex-direction: row;
+    gap: 20px;
+    background-image: linear-gradient(to right, #332721f1 0%, black 100%);
+}
+
+#SOSGame {
+  height: 100dvh;
+}
+
+#sosCanvas {
+  background-color: black;
+}
+
+#legend-container {
+  background-color: blue;
+}
+
+#reset-container {
+    text-align: center; /* Center the Reset button */
+    margin-top: 20px; /* Add spacing above the Reset button */
+}
+
+#reset-container button {
+    padding: 10px 20px;
+    font-size: 16px;
+    background-color: #ce381e; /* Blue background */
+    color: white; /* White text */
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+#reset-container button:hover {
+    background-color: #f57474; /* Darker blue on hover */
+}
+
+.player-score {
+  color: #fff;
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  margin-top: 10px;
+  padding: 20px;
+}

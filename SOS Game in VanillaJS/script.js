@@ -52,21 +52,53 @@ function simulateFire(board, x, y) {
         .map(([dx, dy]) => [x + dx, y + dy])
         .filter(([nx, ny]) => {
             const tile = board.block(nx, ny);
-            return tile && !tile.status.fortified;
+            if (!tile) return false; // Skip out-of-bounds tiles
+            if (!tile.os) return false; // Skip empty tiles
+            if (tile.status.fortified || tile.status.earthShield) return false; // Skip protected tiles
+            if (tile.partOfSOS) return false; // Skip SOS tiles
+            if (tile.status.frozen > 0) return false; // Skip frozen tiles
+            return true; // Valid tile
         });
 
-    // If there are valid tiles, randomly destroy one
-    if (validTiles.length > 0) {
-        const [nx, ny] = validTiles[Math.floor(Math.random() * validTiles.length)];
-        const tile = board.block(nx, ny);
-        tile.status.destroyed = true;
-        tile.os = false; // Erase the letter
-        tile.status.explosionFrame = 6; // Trigger red flash animation
-        console.log(`Fire destroyed tile at (${nx}, ${ny})`);
+    // Apply fire effect to all valid tiles
+    validTiles.forEach(([nx, ny], index) => {
+        setTimeout(() => {
+            const tile = board.block(nx, ny);
+            console.log(`Applying fire effect to tile at (${nx}, ${ny})`);
+            tile.os = false; // Remove the letter (S or O)
+            tile.status.explosionFrame = 12; // Trigger red flash animation
+            tile.status.destroyed = true; // Mark tile as destroyed
+
+            // Play burn sound
+            GameDisplay.playBurnSound();
+
+            // Reset the tile after the Fire effect
+            setTimeout(() => {
+                tile.status.destroyed = false; // Allow the tile to receive inputs again
+                GameDisplay.redraw(); // Redraw the board to reflect the reset
+                console.log(`Tile at (${nx}, ${ny}) is now playable again.`);
+            }, 1000); // Reset after 1 second
+        }, index * 500); // Delay each tile by 500ms
+    });
+
+    // Debug log for tiles processed
+    if (validTiles.length === 0) {
+        console.log(`No valid tiles for Fire effect at (${x}, ${y})`);
+    } else {
+        // Add a final delay to ensure the effect lasts at least 1 second
+        setTimeout(() => {
+            console.log("Fire effect completed.");
+        }, validTiles.length * 500);
     }
 
     return board;
 }
+
+const effectScores = {
+    Fire: 3,   // Fire adds +3 to the score
+    Ice: -1,   // Ice subtracts -1 from the score
+    Earth: 1   // Earth adds +1 to the score
+};
 
 function expectiminimaxFire(state, depth, isMaxPlayer) {
     if (depth === 0 || state.isFull()) {
@@ -82,7 +114,7 @@ function expectiminimaxFire(state, depth, isMaxPlayer) {
                 if (!board.block(i, j).isOccupied()) {
                     ['S', 'O'].forEach(os => {
                         let nextState = state.clone();
-                        nextState.board.makeMove(i, j, os);  // <-- this works now
+                        nextState.board.makeMove(i, j, os);
                         let eval = expectiminimaxFire(nextState, depth - 1, false);
                         maxEval = Math.max(maxEval, eval);
                     });
@@ -92,19 +124,26 @@ function expectiminimaxFire(state, depth, isMaxPlayer) {
         return maxEval;
     } else {
         let expectedValue = 0;
-        const fireProb = 0.3;
-        const noEffectProb = 0.7;
+        const probabilities = { Fire: 0.35, Ice: 0.30, Earth: 0.25 };
 
-        for (let i = 0; i < board.size; i++) {
-            for (let j = 0; j < board.size; j++) {
-                let fireState = state.clone();
-                simulateFire(fireState.board, i, j);
-                expectedValue += fireProb * evaluateBoard(fireState.board);
+        for (const effect in probabilities) {
+            let simulatedState = state.clone();
+
+            // Apply the elemental effect
+            if (effect === 'Fire') {
+                simulateFire(simulatedState.board, 0, 0); // Example position (0, 0)
+            } else if (effect === 'Ice') {
+                simulateIce(simulatedState.board, 0, 0); // Example position (0, 0)
+            } else if (effect === 'Earth') {
+                simulateEarth(simulatedState.board, 0, 0); // Example position (0, 0)
             }
+
+            // Evaluate the board and add the effect's score
+            const evalScore = evaluateBoard(simulatedState.board) + effectScores[effect];
+            expectedValue += probabilities[effect] * evalScore;
         }
 
-        expectedValue += noEffectProb * evaluateBoard(state.board);
-        return expectedValue / (board.size * board.size);
+        return expectedValue;
     }
 }
 
@@ -114,13 +153,30 @@ function simulateIce(board, x, y) {
         [0, 1], [0, -1], [1, 0], [-1, 0]
     ];
 
-    for (const [dx, dy] of directions) {
-        const tile = board.block(x + dx, y + dy);
-        if (tile && tile.status.frozen === 0 && !tile.status.destroyed) {
-            // Set frozen status for several cycles to visualize the blue overlay (drawn in Block.draw)
-            tile.status.frozen = 1; // adjust duration as needed
-            break; // Freeze only one tile
-        }
+    // Filter valid adjacent tiles that are not part of an SOS
+    const validTiles = directions
+        .map(([dx, dy]) => [x + dx, y + dy])
+        .filter(([nx, ny]) => {
+            const tile = board.block(nx, ny);
+            if (!tile) return false; // Skip out-of-bounds tiles
+            if (tile.status.frozen > 0) return false; // Skip already frozen tiles
+            if (tile.status.destroyed) return false; // Skip destroyed tiles
+            if (tile.partOfSOS) return false; // Skip SOS tiles
+            return true; // Valid tile
+        });
+
+    // If there are valid tiles, freeze one
+    if (validTiles.length > 0) {
+        const [nx, ny] = validTiles[Math.floor(Math.random() * validTiles.length)];
+        const tile = board.block(nx, ny);
+        tile.status.frozen = 1; // Freeze for 3 turns
+        tile.status.effectApplied = true; // Mark as applied
+
+        // Play freeze sound
+        GameDisplay.playFreezeSound();
+        console.log(`Ice froze tile at (${nx}, ${ny})`);
+    } else {
+        console.log(`No valid tiles for Ice effect at (${x}, ${y})`);
     }
 
     return board;
@@ -128,31 +184,43 @@ function simulateIce(board, x, y) {
 
 function simulateEarth(board, x, y) {
     const tile = board.block(x, y);
-    if (tile && !tile.status.destroyed) {
-        // Set fortified status to indicate protection. The draw code already paints a brown border when fortified > 0.
-        tile.status.fortified = 2; // shield remains for 2 turns
-        // Optionally add an "earth shield" flag for an extra visual indicator:
-        tile.status.earthShield = true;
+
+    // Only fortify the tile if it is not part of an SOS
+    if (tile && !tile.status.destroyed && !tile.partOfSOS) {
+        tile.status.fortified = 3; // Shield remains for 2 turns
+        tile.status.earthShield = true; // Optional visual indicator
+
+        // Play earth sound
+        GameDisplay.playEarthSound();
+
         setTimeout(() => {
             tile.status.earthShield = false;
             GameDisplay.redraw();
         }, 500);
+        console.log(`Earth fortified tile at (${x}, ${y})`);
+    } else {
+        console.log(`Tile at (${x}, ${y}) is not valid for Earth effect.`);
     }
-    return board; 
+
+    return board;
 }
 
 function triggerRandomElemental() {
+    const effects = ['Fire', 'Ice', 'Earth'];
+    const probabilities = [0.35, 0.30, 0.25]; // Fire: 35%, Ice: 30%, Earth: 25%
     const r = Math.random();
-    if (r < 0.25) return 'Fire';
-    if (r < 0.5) return 'Ice';
-    if (r < 0.75) return 'Earth';
-    return null;
+    let cumulative = 0;
+    for (let i = 0; i < effects.length; i++) {
+        cumulative += probabilities[i];
+        if (r < cumulative) return effects[i];
+    }
+    return 'Fire'; // Default to Fire if something goes wrong (shouldn't happen)
 }
 
 function chooseElementalEffect(board, x, y) {
     let bestScore = -Infinity;
     const scores = {};
-    const effects = ['Fire', 'Ice', 'Earth', null]; // include no effect option
+    const effects = ['Fire', 'Ice', 'Earth']; // include no effect option
     effects.forEach(effect => {
         let simulatedBoard = cloneBoard(board);
         if (effect === 'Fire') {
@@ -170,7 +238,7 @@ function chooseElementalEffect(board, x, y) {
         }
     });
     // Collect effects that are within a threshold of the best score (to allow randomness)
-    const threshold = 0.8;
+    const threshold = 0.5;
     const candidateEffects = effects.filter(effect => Math.abs(scores[effect] - bestScore) <= threshold);
 
     // Randomly choose one from the candidates
@@ -178,20 +246,6 @@ function chooseElementalEffect(board, x, y) {
     return chosenEffect;
 }
 
-// function applyElementalEffect(element, x, y) {
-//     switch (element) {
-//         case 'Fire':
-//             simulateFire(GameDisplay.chessboard, x, y);
-//             animateFireEffect(x, y); // optional animation
-//             break;
-//         case 'Ice':
-//             simulateIce(GameDisplay.chessboard, x, y);
-//             break;
-//         case 'Earth':
-//             simulateEarth(GameDisplay.chessboard, x, y);
-//             break;
-//     }
-// }
 
 function applyElementalEffectWithAI(x, y) {
     // Determine the best elemental effect using expectiminimax
@@ -204,6 +258,7 @@ function applyElementalEffectWithAI(x, y) {
         if (typeof animateFireEffect === 'function') {
             animateFireEffect(x, y);
         }
+        
     } else if (bestEffect === 'Ice') {
         console.log("Element: Ice ❄️ - Freezes one adjacent tile for 1 turn, making the frozen tile unplayable or unchangeable.");
         simulateIce(GameDisplay.chessboard, x, y);
@@ -213,26 +268,40 @@ function applyElementalEffectWithAI(x, y) {
     } else {
         console.log("No Elemental Effect Applied");
     }
+
+    // Return the applied effect
+    return bestEffect;
 }
 
-function evaluateBoard(board, isAI = true) {
-    let score = 0;
-    // const aiLetter = isAI ? 'AI' : 'Human'; // customize if needed
+function evaluateBoard(board) {
+    const weights = {
+        destroyed: -1,
+        frozen: -0.5,
+        fortified: 0.5,
+        partOfSOS: 1
+    };
 
+    let score = 0;
     for (let i = 0; i < board.size; i++) {
         for (let j = 0; j < board.size; j++) {
             const b = board.block(i, j);
 
-            if (b.status.destroyed) score -= 1;
-            if (b.status.frozen > 0) score -= 0.5;
-            if (b.status.fortified > 0) score += 0.5;
-            if (b.partOfSOS) score += 1;
+            if (b.status.destroyed) score += weights.destroyed;
+            if (b.status.frozen > 0) score += weights.frozen;
+            if (b.status.fortified > 0) score += weights.fortified;
+            if (b.partOfSOS) score += weights.partOfSOS;
         }
     }
     return score;
 }
 
 function createElementalLegend() {
+    const legendContainer = document.getElementById("legend-container");
+
+    // Clear existing legend content
+    legendContainer.innerHTML = '';
+
+    // Create and append the new legend
     const legend = document.createElement('div');
     legend.innerHTML = `
         <h4>🧪 Elemental Effects</h4>
@@ -245,7 +314,8 @@ function createElementalLegend() {
     legend.style.padding = '10px';
     legend.style.fontFamily = 'Arial';
     legend.style.fontSize = '14px';
-    document.getElementById("legend-container").appendChild(legend);
+
+    legendContainer.appendChild(legend);
 }
 
 var GameLogger = {
@@ -262,7 +332,7 @@ var GameLogger = {
             x,
             y,
             letter,
-            element: element || 'None'
+            element: element
         });
     },
     logResult: function(winner) {
@@ -281,6 +351,32 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
     
     canvas.style.position = 'relative';
     var ctx = canvas.getContext("2d");
+
+    // Audio elements
+    const backgroundMusic = new Audio('music.mp3');
+    const burnSound = new Audio('burn.mp3');
+    const earthSound = new Audio('earth.mp3');
+    const freezeSound = new Audio('freeze.mp3');
+
+    // Set default volume
+    backgroundMusic.volume = 0.3;
+    burnSound.volume = 0.5;
+    earthSound.volume = 0.5;
+    freezeSound.volume = 0.5;
+
+    // Loop background music
+    backgroundMusic.loop = true;
+    backgroundMusic.play();
+
+    // // Volume control
+    // const volumeControl = document.getElementById('volume');
+    // volumeControl.addEventListener('input', function () {
+    //     const volume = parseFloat(this.value);
+    //     backgroundMusic.volume = volume;
+    //     burnSound.volume = volume;
+    //     earthSound.volume = volume;
+    //     freezeSound.volume = volume;
+    // });
 
     /* I divide the code into Logic, Display and Control sections according to methods' functionalities for readability */
     // namespace GameDisplay
@@ -308,9 +404,13 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         Animate.during = function(condf, func) {
             return function(param) {
                 var obj = this;
-                if (this.__animateInterval__) {clearInterval(this.__animateInterval__);}
+                if (this.__animateInterval__) {
+                    clearInterval(this.__animateInterval__);
+                }
                 this.__animateInterval__ = setInterval(function() {
-                    if (! condf.call(obj, param)) {clearInterval(obj.__animateInterval__); return;}
+                    if (! condf.call(obj, param)) {
+                        clearInterval(obj.__animateInterval__); return;
+                    }
                     func.call(obj);
                 }, 1000 / GameDisplay.FPS);
             };
@@ -319,7 +419,7 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         GameDisplay.OSClass = function(x, y, os) {
             GameDisplay.Animate(this);
             this.trans = GameDisplay.OS_ORI_TRANS;
-            this.C_TRANS = 1 / (0.15 * GameDisplay.FPS);
+            this.C_TRANS = 1 / (0.1 * GameDisplay.FPS);
             this.x = x;
             this.y = y;
             this.os = os;
@@ -329,44 +429,42 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                 if (n < 0.1) {return (this.trans = 0);}
                 return (this.trans = n);
             };
-            var OSClass = this;
-            
-            // these methods must be defined inside constructor as they use anomynous functions as parameters
-            /* animated version */
-            //*
-            // this.fadein = animate.during(function(lim) {return OSClass.trans < lim}, 
-            //                              function() {OSClass.strans(OSClass.trans+OSClass.C_TRANS); GameDisplay.redraw();});
-            // this.fadeout = animate.during(function(lim) {return OSClass.trans > lim;},
-            //                               function() {OSClass.strans(OSClass.trans-OSClass.C_TRANS); GameDisplay.redraw();});
-            // this.fadeto = function(n) {(OSClass.trans < n) ? OSClass.fadein(n) : OSClass.fadeout(n);};
-            //*/
-            /* no animation version */
-            /*
-            this.fadein = function(n) {OSClass.strans(n); GameDisplay.redraw();};
-            this.fadeout = function(n) {OSClass.strans(n); GameDisplay.redraw();};
-            this.fadeto = function(n) {(OSClass.trans < n) ? OSClass.fadein(n) : OSClass.fadeout(n);};
-            */
+            // var OSClass = this;
 
-            window.GameDisplay = GameDisplay;
+            window.GameDisplay = GameDisplay; // This line is fine if `GameDisplay` needs to be globally accessible.
         };
         var OSClass = GameDisplay.OSClass.prototype;
         console.log(GameDisplay.OSClass.prototype);
         
-        OSClass.fadein = Animate.during(function(lim) {return this.trans < lim}, 
-                                        function() {this.strans(this.trans+this.C_TRANS); GameDisplay.redraw();});
-        OSClass.fadeout = Animate.during(function(lim) {return this.trans > lim;},
-                                         function() {this.strans(this.trans-this.C_TRANS); GameDisplay.redraw();});
-        OSClass.fadeto = function(n) {(this.trans < n) ? this.fadein(n) : this.fadeout(n);};        
+        OSClass.fadein = Animate.during(function(lim) {
+            return this.trans < lim
+        }, function() {
+            this.strans(this.trans+this.C_TRANS); 
+            GameDisplay.redraw();
+        });
+
+        OSClass.fadeout = Animate.during(function(lim) {
+            return this.trans > lim;
+        }, function() {
+            this.strans(this.trans-this.C_TRANS); 
+            GameDisplay.redraw();
+        });
+
+        OSClass.fadeto = function(n) {
+            (this.trans < n) ? this.fadein(n) : this.fadeout(n);
+        };        
 
         OSClass.draw = function() {
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'center';
-            ctx.font = GameDisplay.OS_FONT_SIZE+"px Arial";
-            ctx.strokeStyle ="rgba(0,0,0,"+this.trans+")";
+            ctx.font = GameDisplay.OS_FONT_SIZE + "px Arial";
+            ctx.strokeStyle ="rgba(0,0,0," + this.trans +")";
             var tx = this.x + GameDisplay.OSWidth / 2;
             var ty = this.y + GameDisplay.OSHeight / 2;
-            ctx.strokeText(this.os, tx, ty);
-            // ctx.strokeRect(this.x, this.y, this.width, this.height);
+            ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+            ctx.shadowBlur = 5;
+            ctx.fillStyle = "rgba(255, 255, 255, " + this.trans + ")";
+            ctx.fillText(this.os, tx, ty);
         };
         
         /* Extended Block Class */
@@ -397,46 +495,63 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         }
 
         Block.draw = function() {
-            if (this.partOfSOS) {ctx.fillStyle = '#FF5648';}
-            else {ctx.fillStyle = ((this.bx + this.by) % 2) ? '#7393B3' : '#fff';}
-            ctx.fillRect(this.x, this.y, GameDisplay.blkHeight, GameDisplay.blkWidth);
-            if (this.isOccupied()) {
-                ctx.strokeStyle ="orange";
-                ctx.font = GameDisplay.OS_FONT_SIZE+'px Arial';                    
-                ctx.strokeText(this.os, this.x + GameDisplay.blkWidth / 2, this.y + GameDisplay.blkHeight / 2);
-            } else {
-                this.O.draw();
-                this.S.draw();
+            if (this.partOfSOS) {
+                ctx.fillStyle = '#FF5648';
             }
+            else {
+                ctx.fillStyle = ((this.bx + this.by) % 2) ? '#f3e0d1' : '#fcf5f0';
+            }
+            ctx.fillRect(this.x, this.y, GameDisplay.blkHeight, GameDisplay.blkWidth);
+
+            if (this.isOccupied()) {
+                ctx.fillStyle = "#5e3900"; // Set the fill color for the text
+                ctx.font = GameDisplay.OS_FONT_SIZE + 'px Arial';
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(this.os, this.x + GameDisplay.blkWidth / 2, this.y + GameDisplay.blkHeight / 2); // Filled text
+            } else {
+                if (this.O) this.O.draw(); // Check if `O` exists before calling `draw`
+                if (this.S) this.S.draw();
+            }
+
             // Explosion animation overlay
             if (this.status.explosionFrame > 0) {
-                ctx.fillStyle = `rgba(255, 0, 0, ${0.6 - this.status.explosionFrame * 0.1})`;
+                ctx.fillStyle = `rgba(255, 69, 0, ${0.6 - this.status.explosionFrame * 0.1})`; // Flame orange;
                 ctx.fillRect(this.x, this.y, GameDisplay.blkWidth, GameDisplay.blkHeight);
                 this.status.explosionFrame--;
-                setTimeout(GameDisplay.redraw, 30); // schedule next frame
+                setTimeout(GameDisplay.redraw, 60); // Schedule next frame
             }
+
             // Frozen tiles – show blue overlay
             if (this.status.frozen > 0) {
-                ctx.fillStyle = 'rgba(0, 180, 255, 0.3)';
+                ctx.fillStyle = 'rgba(173, 216, 230, 0.5)';;
                 ctx.fillRect(this.x, this.y, GameDisplay.blkWidth, GameDisplay.blkHeight);
+                ctx.strokeStyle = '#00BFFF'; // Icy blue border
+                ctx.lineWidth = 3;
+                ctx.strokeRect(this.x, this.y, GameDisplay.blkWidth, GameDisplay.blkHeight);
+            }
+            
+            // EarthShield visual effect
+            if (this.status.earthShield) {
+                const glowAlpha = 0.5 + 0.5 * Math.sin(Date.now() / 200); // Pulsating glow
+                ctx.strokeStyle = `rgba(34, 139, 34, ${glowAlpha})`; // Green glow
+                ctx.lineWidth = 4;
+                ctx.strokeRect(this.x + 2, this.y + 2, GameDisplay.blkWidth - 4, GameDisplay.blkHeight - 4);
             }
 
             // Fortified tiles – show brown border
             if (this.status.fortified > 0) {
-                ctx.strokeStyle = '#8B4513';
+                ctx.strokeStyle = 'rgba(139, 69, 19, 0.8)'; // Earthy brown
                 ctx.lineWidth = 4;
                 ctx.strokeRect(this.x + 2, this.y + 2, GameDisplay.blkWidth - 4, GameDisplay.blkHeight - 4);
             }
-            if (this.status.earthShield) {
-                ctx.strokeStyle = 'gold';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(this.x + 4, this.y + 4, GameDisplay.blkWidth - 8, GameDisplay.blkHeight - 8);
-            }
         };
+
         Block.dehover = function() {
             this.O.fadeout(0);
             this.S.fadeout(0);
         }
+
         Block.click = function(os) {
             this.os = os;
             delete this.O;
@@ -450,7 +565,8 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
             this.size = size;
             this.currentOS = 0;
             this.mcb = [];
-            // create a size x size chessboard;
+
+            // Create a size x size chessboard;
             for (var i = 0; i < this.size; ++i) {
                 this.mcb.push([]);
                 for (var j = 0; j < this.size; ++j) {
@@ -466,12 +582,14 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
             this.score = 0;
             
             this.div = document.createElement('DIV');
+            this.div.className = 'player-score';
             canvas.parentNode.insertBefore(this.div, canvas.nextSibling);
             this.redrawScore();
         }
+
         var Player = GameDisplay.Player.prototype;
         Player.redrawScore = function() {
-            this.div.innerHTML = this.name+" score: "+this.score;
+            this.div.innerHTML = this.name + " score: " + this.score;
         }
         
         GameDisplay.clear = function() {
@@ -486,7 +604,10 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
             }
         };
         
-        GameDisplay.redraw = function() {this.clear(); this.draw();}
+        GameDisplay.redraw = function() {
+            GameDisplay.clear(); 
+            GameDisplay.draw();
+        }.bind(GameDisplay);
         
         GameDisplay.hoverAnimation = function(bx, by, os) {
             var bl = this.chessboard.block(bx, by);
@@ -501,9 +622,11 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         };
         
         GameDisplay.dehoverAnimation = function(bx, by) {
-            console.log('dehoverAnimation');
+            // console.log('dehoverAnimation');
             var bl = this.chessboard.block(bx,by);
-            if (bl.isOccupied()) {return;}
+            if (bl.isOccupied()) {
+                return;
+            }
             bl.dehover();
         }
         
@@ -522,44 +645,59 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         };
         
         GameDisplay.blockM = function(x, y) {
-            if (this.blockX(x) < this.chessboard.size && this.blockY(y) < this.chessboard.size) {
+            if (this.blockX(x) < this.chessboard.size 
+                && this.blockY(y) < this.chessboard.size) {
                 return x / GameDisplay.blkWidth % 1 > 0.5 ? "S" : "O";
             } else {
                 return false;
             }
         };
 
-
         GameDisplay.Chessboard.prototype.statusUpdate = function() {
             for (let i = 0; i < this.size; i++) {
                 for (let j = 0; j < this.size; j++) {
                     let block = this.block(i, j);
-                    // Decrement Fortified
                     if (block.status.fortified > 0) {
                         block.status.fortified--;
                     }
-                    // Decrement Frozen
                     if (block.status.frozen > 0) {
                         block.status.frozen--;
                     }
+                    // Reset earthShield after its duration
+                    if (block.status.earthShield && block.status.fortified === 0) {
+                        block.status.earthShield = false;
+                    }
+                    // Reset effectApplied flag for the next turn
+                    block.status.effectApplied = false;
                 }
             }
         };
+
+        GameDisplay.Chessboard.prototype.hasValidMoves = function() {
+            for (let i = 0; i < this.size; i++) {
+                for (let j = 0; j < this.size; j++) {
+                    const block = this.block(i, j);
+                    if (!block.isOccupied() && block.status.frozen === 0 && !block.partOfSOS) {
+                        return true; // At least one valid move exists
+                    }
+                }
+            }
+            return false; // No valid moves left
+        };
          
         GameDisplay.drawGameOver = function(str) {
-            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.fillStyle = 'rgba(79, 58, 52, 0.8)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
-            ctx.fillStyle = '#000';
-            ctx.font = GameDisplay.OS_FONT_SIZE/3 + 'px Aprial';
+            ctx.fillStyle = '#f3e0d1';
+            ctx.font = GameDisplay.OS_FONT_SIZE/3 + 'px Arial';
             ctx.fillText(str, canvas.width/2, canvas.height/2);
-            ctx.font = GameDisplay.OS_FONT_SIZE/4 + 'px Aprial';
+            ctx.font = GameDisplay.OS_FONT_SIZE/4 + 'px Arial';
             ctx.fillText('Retry', canvas.width/2, canvas.height/2 + GameDisplay.OS_FONT_SIZE/4);
         }  
         
         GameDisplay.start = function(size) {
-            // var EDGE_LENGTH = Math.min(canvas.parentNode.offsetHeight, canvas.parentNode.offsetWidth, window.innerHeight, window.innerWidth);
             this.blkHeight = this.blkWidth = this.OSHeight = EDGE_LENGTH / size;
             this.OSWidth = this.OSHeight / 2;
             this.OS_FONT_SIZE = this.OSWidth - 5;
@@ -567,6 +705,21 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
             this.chessboard = new this.Chessboard(size);
         }
         
+        // Play sound effects for specific actions
+        GameDisplay.playBurnSound = function () {
+            burnSound.currentTime = 0; // Reset sound to start
+            burnSound.play();
+        };
+
+        GameDisplay.playEarthSound = function () {
+            earthSound.currentTime = 0;
+            earthSound.play();
+        };
+
+        GameDisplay.playFreezeSound = function () {
+            freezeSound.currentTime = 0;
+            freezeSound.play();
+        };
     };
 
     /* I divide the code into Logic, Display and Control sections according to method functionalities for readability */
@@ -574,9 +727,9 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
     var GameLogic = new function() {
         var GameLogic = this;
         
-        /* Gloable Varible */
+        /* Global Varible */
         GameLogic.chessboard;
-        // shorthands. going to directly mutate the GameDisplay.Chessboard prototype
+        // Going to directly mutate the GameDisplay.Chessboard prototype
         var Chessboard = GameDisplay.Chessboard.prototype;
 
         Chessboard.isFull = function() {
@@ -592,8 +745,16 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         }
         
         Chessboard.makeMove = function(bx, by, os) {
+            const block = this.block(bx, by);
+
+            // Prevent moves on frozen tiles
+            if (block.status.frozen > 0) {
+                console.log(`Move not allowed: Tile at (${bx}, ${by}) is frozen.`);
+                return false; // Indicate that the move was not successful
+            }
+
             this.currentOS++; 
-            // change the surrounding's safeO/S fields
+            // Change the surrounding's safeO/S fields
             this.block(bx, by).os = os;
             var Chessboard = this;
             function fO(bx, by) {var b = Chessboard.block(bx, by); if (b) {b.safeO = false;}}
@@ -635,12 +796,21 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                 fS(bx-2,by-2);
                 fS(bx-2,by+2);
             }
-            // if made SOS, then turn the blocks to other color
-            var ls = this.hasSOS(bx, by, os);
-            for (var i = 0; i < ls.length; i++) {
-                ls[i][0].partOfSOS = ls[i][1].partOfSOS = ls[i][2].partOfSOS = true;
+            // // if made SOS, then turn the blocks to other color
+            // var ls = this.hasSOS(bx, by, os);
+            // for (var i = 0; i < ls.length; i++) {
+            //     ls[i][0].partOfSOS = ls[i][1].partOfSOS = ls[i][2].partOfSOS = true;
+            // }
+            // GameDisplay.redraw();
+            
+            // Check for SOS and update tiles
+            const sosList = this.hasSOS(bx, by, os);
+            for (let i = 0; i < sosList.length; i++) {
+                sosList[i][0].partOfSOS = sosList[i][1].partOfSOS = sosList[i][2].partOfSOS = true;
             }
+
             GameDisplay.redraw();
+            return true; // Indicate that the move was successful
         };
         
         Chessboard.isOccupied = function(bx, by) {return GameDisplay.chessboard.block(bx, by).os;}
@@ -649,19 +819,68 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
             function neg(os) {return (os === 'S' ? 'O' : 'S');}
             var ls = [];
             if (os === 'S') {
-                if (this.block(bx, by + 1).os === neg(os) && this.block(bx, by + 2).os === os) {ls.push([this.block(bx, by), this.block(bx, by + 1), this.block(bx, by + 2)]);}
-                if (this.block(bx + 1, by + 1).os === neg(os) && this.block(bx + 2, by + 2).os === os) {ls.push([this.block(bx, by), this.block(bx + 1, by + 1), this.block(bx + 2, by + 2)]);}
-                if (this.block(bx + 1, by).os === neg(os) && this.block(bx + 2, by).os === os) {ls.push([this.block(bx, by), this.block(bx + 1, by), this.block(bx + 2, by)]);}
-                if (this.block(bx + 1, by - 1).os === neg(os) && this.block(bx + 2, by - 2).os === os) {ls.push([this.block(bx, by), this.block(bx + 1, by - 1), this.block(bx + 2, by - 2)]);}
-                if (this.block(bx, by - 1).os === neg(os) && this.block(bx, by - 2).os === os) {ls.push([this.block(bx, by), this.block(bx, by - 1), this.block(bx, by - 2)]);}
-                if (this.block(bx - 1, by - 1).os === neg(os) && this.block(bx - 2, by - 2).os === os) {ls.push([this.block(bx, by), this.block(bx - 1, by - 1), this.block(bx - 2, by - 2)]);}
-                if (this.block(bx - 1, by).os === neg(os) && this.block(bx - 2, by).os === os) {ls.push([this.block(bx, by), this.block(bx - 1, by), this.block(bx - 2, by)]);}
-                if (this.block(bx - 1, by + 1).os === neg(os) && this.block(bx - 2, by + 2).os === os) {ls.push([this.block(bx, by), this.block(bx - 1, by + 1), this.block(bx - 2, by + 2)]);}
+                if (this.block(bx, by + 1).os === neg(os) && this.block(bx, by + 2).os === os) {
+                    ls.push([this.block(bx, by), 
+                        this.block(bx, by + 1), 
+                        this.block(bx, by + 2)]);
+                    }
+            
+                if (this.block(bx + 1, by + 1).os === neg(os) && this.block(bx + 2, by + 2).os === os) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx + 1, by + 1), 
+                    this.block(bx + 2, by + 2)]);
+                }
+                if (this.block(bx + 1, by).os === neg(os) && this.block(bx + 2, by).os === os) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx + 1, by), 
+                    this.block(bx + 2, by)]);
+                }
+                if (this.block(bx + 1, by - 1).os === neg(os) && this.block(bx + 2, by - 2).os === os) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx + 1, by - 1), 
+                    this.block(bx + 2, by - 2)]);
+                }
+                if (this.block(bx, by - 1).os === neg(os) && this.block(bx, by - 2).os === os) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx, by - 1), 
+                    this.block(bx, by - 2)]);
+                }
+                if (this.block(bx - 1, by - 1).os === neg(os) && this.block(bx - 2, by - 2).os === os) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx - 1, by - 1), 
+                    this.block(bx - 2, by - 2)]);
+                }
+                if (this.block(bx - 1, by).os === neg(os) && this.block(bx - 2, by).os === os) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx - 1, by), 
+                    this.block(bx - 2, by)]);
+                }
+                if (this.block(bx - 1, by + 1).os === neg(os) && this.block(bx - 2, by + 2).os === os) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx - 1, by + 1), 
+                    this.block(bx - 2, by + 2)]);
+                }
             } else if (os === 'O') {
-                if (this.block(bx + 1, by).os === neg(os) && this.block(bx - 1, by).os === neg(os)) {ls.push([this.block(bx, by), this.block(bx + 1, by), this.block(bx - 1, by)]);}
-                if (this.block(bx + 1, by + 1).os === neg(os) && this.block(bx - 1, by - 1).os === neg(os)) {ls.push([this.block(bx, by), this.block(bx + 1, by + 1), this.block(bx - 1, by - 1)]);}
-                if (this.block(bx, by + 1).os === neg(os) && this.block(bx, by - 1).os === neg(os)) {ls.push([this.block(bx, by), this.block(bx, by + 1), this.block(bx, by - 1)]);}
-                if (this.block(bx - 1, by + 1).os === neg(os) && this.block(bx + 1, by - 1).os === neg(os)) {ls.push([this.block(bx, by), this.block(bx - 1, by + 1), this.block(bx + 1, by - 1)]);}
+                if (this.block(bx + 1, by).os === neg(os) && this.block(bx - 1, by).os === neg(os)) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx + 1, by), 
+                    this.block(bx - 1, by)]);
+                }
+                if (this.block(bx + 1, by + 1).os === neg(os) && this.block(bx - 1, by - 1).os === neg(os)) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx + 1, by + 1), 
+                    this.block(bx - 1, by - 1)]);
+                }
+                if (this.block(bx, by + 1).os === neg(os) && this.block(bx, by - 1).os === neg(os)) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx, by + 1), 
+                    this.block(bx, by - 1)]);
+                }
+                if (this.block(bx - 1, by + 1).os === neg(os) && this.block(bx + 1, by - 1).os === neg(os)) {
+                    ls.push([this.block(bx, by), 
+                    this.block(bx - 1, by + 1), 
+                    this.block(bx + 1, by - 1)]);
+                }
             }
             return ls;
         }
@@ -709,9 +928,6 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         GameLogic.randomOS = function() {
             return (Math.random() > 0.5) ? 'S' : 'O';
         }
-
-    
-
     };
     
     /* I divide the code into Logic, Display and Control sections according to methods' functionalities for readability */
@@ -720,7 +936,7 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         
         var GameControl = this;
         
-        // shorthands. going to directly mutate the GameDisplay.Chessboard prototype
+        // This is going to directly mutate the GameDisplay.Chessboard prototype
         var Player = GameDisplay.Player.prototype;
         
         Player.usrMove = function(callback) {
@@ -733,11 +949,14 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                 var bx = GameDisplay.blockX(event.offsetX);
                 var by = GameDisplay.blockY(event.offsetY);
                 var os = GameDisplay.blockM(event.offsetX, event.offsetY);
-                if (bx !== false && by !== false && (os !== prevOS || bx !== prevX || by !== prevY)) { // if the mouse is on a different O/S from last time, play hover animation // if mouse is in a chessboard block
+                if (bx !== false && by !== false && (os !== prevOS || bx !== prevX || by !== prevY)) { 
+                    // If the mouse is on a different O/S from last time, play hover animation 
+                    // If mouse is in a chessboard block
                     GameDisplay.hoverAnimation(bx, by, os);
                 }
-                if (prevX !== false && prevY !== false && (prevX !== bx || prevY !== by)) { // if the block has changed, play dehover animations on the block
-                    console.log("GameDisplay: call dehoverAnimation on", prevX+' '+prevY+' '+prevOS);
+                if (prevX !== false && prevY !== false && (prevX !== bx || prevY !== by)) { 
+                    // If the block has changed, play dehover animations on the block
+                    // console.log("GameDisplay: call dehoverAnimation on", prevX+' '+prevY+' '+prevOS);
                     GameDisplay.dehoverAnimation(prevX, prevY, prevOS);
                 }
                 prevOS = os;
@@ -753,112 +972,203 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                 
                 if (bx === false || by === false) {return;}
                 if (GameDisplay.chessboard.isOccupied(bx, by)) {return;}
-                
+                // Prevent moves on frozen tiles
+                if (GameDisplay.chessboard.block(bx, by).status.frozen > 0) {
+                    console.log(`Move not allowed: Tile at (${bx}, ${by}) is frozen.`);
+                    return;
+                }
+                        
                 canvas.removeEventListener("mousemove", mousemove, false);
                 canvas.removeEventListener("click", click, false);
+
                 GameDisplay.clickAnimation(bx, by, os);
-                GameDisplay.chessboard.makeMove(bx, by, os);
-                GameDisplay.chessboard.statusUpdate();
-                GameLogger.logMove("Human", bx, by, os, "None");
-                // const element = triggerRandomElemental();
-                // applyElementalEffect(element, bx, by);
-                applyElementalEffectWithAI(bx, by);
-                
-                var r;
-                if ((r = GameDisplay.chessboard.hasSOS(bx, by, os).length)) {
-                    Player.score += r;
-                    Player.redrawScore();
-                    Player.makeMove(callback);
-                } else {
-                    setTimeout(callback, 1000);
+                const moveSuccessful = GameDisplay.chessboard.makeMove(bx, by, os);
+
+                if (moveSuccessful) {
+                    GameDisplay.chessboard.statusUpdate();
+                    let element = null; // Initialize the element variable
+
+                    // Determine the elemental effect applied
+                    if (!GameDisplay.chessboard.block(bx, by).status.effectApplied) {
+                        element = applyElementalEffectWithAI(bx, by); // Assign the applied effect
+                        GameDisplay.chessboard.block(bx, by).status.effectApplied = true; // Mark as applied
+                    }
+
+                    // Log the move with the correct elemental effect
+                    GameLogger.logMove("Human", bx, by, os, element);
+
+                    const r = GameDisplay.chessboard.hasSOS(bx, by, os).length;
+                    if (r) {
+                        Player.score += r;
+                        Player.redrawScore();
+                        Player.makeMove(callback);
+                    } else {
+                        setTimeout(callback, 1000);
+                    }
                 }
-                
-                
             }
             
             canvas.addEventListener("mousemove", mousemove, false);
             canvas.addEventListener("click", click, false);
         };
         
+        // Check for a move to make SOS
         Player.cmpMove = function(callback) {
+            console.log("AI is making a move...");
             var Player = this;
-            var r;
             var cb = GameDisplay.chessboard;
-            for (var i = 0; i < cb.size; i++) {
-                for (var j = 0; j < cb.size; j++) {
-                    if (! cb.isOccupied(i, j)) { // if found a move to make SOS
-                        if ((r = cb.hasSOS(i, j, 'S').length)) {
-                            cb.makeMove(i, j, 'S');
-                            applyElementalEffectWithAI(i, j);
-                        } else
-                        if ((r = cb.hasSOS(i, j, 'O').length)) {
-                            cb.makeMove(i, j, 'O');
-                            applyElementalEffectWithAI(i, j);
-                        } else {
-                            continue;
+
+            // Recursive function to process SOS moves one by one
+            function processSOSMoves() {
+                for (var i = 0; i < cb.size; i++) {
+                    for (var j = 0; j < cb.size; j++) {
+                        const block = cb.block(i, j);
+                        if (!block.isOccupied() && block.status.frozen === 0) {
+                            let r;
+                            if ((r = cb.hasSOS(i, j, 'S').length)) {
+                                cb.makeMove(i, j, 'S');
+                                let element = null; // Initialize the element variable
+
+                                // Apply the elemental effect if not already applied
+                                if (!block.status.effectApplied) {
+                                    element = applyElementalEffectWithAI(i, j);
+                                    block.status.effectApplied = true; // Mark as applied
+                                }
+
+                                GameLogger.logMove("AI", i, j, 'S', element);
+                                Player.score += r;
+                                Player.redrawScore();
+                                cb.statusUpdate();
+
+                                console.log("SOS found, making move at", i, j, "with OS 'S'");
+                                setTimeout(processSOSMoves, 1000); // Delay before processing the next SOS move
+                                return; // Exit the loop and wait for the next call
+                            } else if ((r = cb.hasSOS(i, j, 'O').length)) {
+                                cb.makeMove(i, j, 'O');
+                                let element = null; // Initialize the element variable
+
+                                if (!block.status.effectApplied) {
+                                    element = applyElementalEffectWithAI(i, j);
+                                    block.status.effectApplied = true;
+                                }
+                                
+                                GameLogger.logMove("AI", i, j, 'O', element);
+                                Player.score += r;
+                                Player.redrawScore();
+                                cb.statusUpdate();
+
+                                console.log("SOS found, making move at", i, j, "with OS 'O'");
+                                setTimeout(processSOSMoves, 1000); // Delay before processing the next SOS move
+                                return; // Exit the loop and wait for the next call
+                            }
                         }
-                        Player.score += r;
-                        Player.redrawScore();
-                        cb.statusUpdate();
-                        setTimeout(function() {Player.makeMove(callback)}, 1000); // make another move after 1 second
-                        return;
                     }
                 }
-            }
-            // if there no move to make SOS
-            var moveAbleLs = [];
-            var unmoveAble;
-            for (var i = 0; i < cb.size; i++) {
-                for (var j = 0; j < cb.size; j++) {
-                    if (! cb.isOccupied(i, j)) {
-                        var boolS = cb.isSafe(i, j, 'S');
-                        var boolO = cb.isSafe(i, j, 'O');
-                        if (boolO && boolS) {
-                            moveAbleLs.push({"bx":i, "by":j, "os": GameLogic.randomOS()});
-                        } else
-                        if (boolS) {
-                            moveAbleLs.push({"bx":i, "by":j, "os": 'S'});
-                        } else 
-                        if (boolO) {
-                            moveAbleLs.push({"bx":i, "by":j, "os": 'O'});
-                        } else {
-                            unmoveAble = {"bx":i, "by":j, "os": GameLogic.randomOS()};
-                            continue;
+
+                // If no SOS moves are found, make a random move
+                var moveAbleLs = [];
+                for (var i = 0; i < cb.size; i++) {
+                    for (var j = 0; j < cb.size; j++) {
+                        const block = cb.block(i, j);
+                        if (!block.isOccupied() && block.status.frozen === 0) {
+                            moveAbleLs.push({ bx: i, by: j, os: GameLogic.randomOS() });
                         }
                     }
                 }
+
+                if (moveAbleLs.length > 0) {
+                    var move = moveAbleLs[Math.floor(Math.random() * moveAbleLs.length)];
+                    cb.makeMove(move.bx, move.by, move.os);
+                    let element = null; // Initialize the element variable
+
+                    // Apply the elemental effect if not already applied
+                    if (!cb.block(move.bx, move.by).status.effectApplied) {
+                        element = applyElementalEffectWithAI(move.bx, move.by);
+                        cb.block(move.bx, move.by).status.effectApplied = true; // Mark as applied
+                    }
+
+                    GameLogger.logMove("AI", move.bx, move.by, move.os, element);
+                    console.log("No SOS found, making random move at", move.bx, move.by, "with OS", move.os);
+                } else {
+                    console.log("No valid moves available for AI.");
+                }
+
+                // Invoke the callback to end the AI's turn
+                setTimeout(callback, 1000);
             }
-            // if all moves are dangrous, just pick one.
-            if (! moveAbleLs.length) {
-                cb.makeMove(unmoveAble.bx, unmoveAble.by, unmoveAble.os);
-            } else {
-                var idx = Math.floor(Math.random() * moveAbleLs.length);
-                var m = moveAbleLs[idx];
-                cb.makeMove(m.bx, m.by, m.os);
-            }
-            callback();
-        }
+
+            // Start processing SOS moves
+            processSOSMoves();
+        };
     
         Player.makeMove = function(callback) {
             if (GameDisplay.chessboard.isFull()) {
-                GameControl.gameOver(); return;}
+                GameControl.gameOver(); 
+                return;
+            }
+
+            // Check if there are any valid moves left
+            if (!GameDisplay.chessboard.hasValidMoves()) {
+                console.log("No valid moves left. Ending the game.");
+                GameControl.gameOver();
+                return;
+            }
             this.type === 'Human' ? this.usrMove(callback) : this.cmpMove(callback);
         }
         
         GameControl.gameStart = function(size) {
             console.log(canvas.parentNode.offsetHeight, canvas.parentNode.offsetWidth);
+
             this.A = new GameDisplay.Player("Your", 'Human');
             this.B = new GameDisplay.Player("Opponent's", 'AI');
+
+            // Create a container div for the Reset button
+            const resetContainer = document.createElement('div');
+            resetContainer.id = 'reset-container'; // Assign an ID for styling
+            canvas.parentNode.appendChild(resetContainer);
+
+            resetContainer.style.textAlign = 'center'; // Center the Reset button
+            resetContainer.style.marginTop = '20px'; // Add spacing above the Reset button
+
+
             this.reset = document.createElement('button');
             this.reset.innerHTML = 'Reset';
+
             canvas.parentNode.appendChild(this.reset);
-            this.reset.onclick = GameControl.gameReset;
+
+            // Apply inline styles to the Reset button
+            this.reset.style.padding = '10px 20px';
+            this.reset.style.fontSize = '16px';
+            this.reset.style.fontFamily = 'Arial, sans-serif';
+            this.reset.style.backgroundColor = '#c13535'; // Blue background
+            this.reset.style.color = 'white'; // White text
+            this.reset.style.border = 'none';
+            this.reset.style.borderRadius = '5px';
+            this.reset.style.cursor = 'pointer';
+            this.reset.style.transition = 'background-color 0.3s ease';
+
+            // Add hover effect using JavaScript
+            this.reset.addEventListener('mouseover', function() {
+                this.style.backgroundColor = '#e56060'; // Darker blue on hover
+            });
+            this.reset.addEventListener('mouseout', function() {
+                this.style.backgroundColor = '#c13535'; // Original blue color
+            });
+
+            this.reset.onclick = function() {
+                location.reload(); // Reload the page to reset the game
+            };
             
             GameDisplay.start(size);
-            createElementalLegend();
             GameDisplay.draw();
             
-            (function callback() {GameControl.A.makeMove(function() {GameControl.B.makeMove(callback)})})();
+            // Start the game loop
+            (function callback() {
+                GameControl.A.makeMove(function() {
+                    // GameControl.B.makeMove(callback)
+                    setTimeout(() => GameControl.B.makeMove(callback), 1200);
+                })
+            })();
         }
         
         GameControl.gameReset = function() {
@@ -874,25 +1184,36 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
         }
         
         GameControl.gameOver = function() {
+            let winner;
+
             if (this.A.score > this.B.score) {
                 GameDisplay.drawGameOver('You Won');
-            } else
-            if (this.A.score < this.B.score) {
+                winner = 'You Won';
+            } else if (this.A.score < this.B.score) {
                 GameDisplay.drawGameOver('You Lost');
+                winner = 'You Lost';
             } else {
                 GameDisplay.drawGameOver('Draw');
+                winner = 'Draw';
             }
-            var f = function() {
-                GameControl.gameReset();
-                canvas.removeEventListener('click', f);  
-                GameLogger.logResult('Draw' | 'You Won' | 'You Lost');
-                GameLogger.export();  // print in dev console              
+
+            // Log the result
+            GameLogger.logResult(winner);
+
+            // Export the game log
+            GameLogger.export();
+
+            // Reset the game on click
+            const resetGame = () => {
+                location.reload(); // Reload the page to reset the game
+                canvas.removeEventListener('click', resetGame);
+                canvas.addEventListener('click', resetGame);
             };
-            canvas.addEventListener('click', f);
-        }
+            canvas.addEventListener('click', resetGame);
+        };
         
     }
     
     /* Main */
-    GameControl.gameStart(5);
+    GameControl.gameStart(4);
 }

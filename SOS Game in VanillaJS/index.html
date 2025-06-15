@@ -4,24 +4,23 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SOS: Elementals</title>
-    <style type="text/css">
-        canvas#c {
-            border: 1px dotted #000;
-            -webkit-tap-highlight-color: transparent;
-        }
-        * {
-            padding: 0;
-            margin: 0;
-        }
-    </style>
+    <link rel="icon" type="image/x-icon" href="logo.png">
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div>
-        <canvas id='SOSGame'></canvas>
-    </div>
-    <div id="container" style="display: flex; gap: 20px;">
-        <canvas id="sosCanvas"></canvas>
-        <div id="legend-container"></div>
+    <div id="container">
+        <div class="intro">
+            <img src="logo.png" alt="SOS Elementals Logo" class="logo">
+            <div class="effects">
+                <h1 class="title-effect">Elemental Effects:</h1>
+                <ul class="legend-list">
+                    <li>🔥 <b>Fire</b>: Destroys nearby tiles (red flash)</li>
+                    <li>❄️ <b>Ice</b>: Freezes adjacent tile (blue tint)</li>
+                    <li>🟤 <b>Earth</b>: Shields tile for 2 turns (brown border)</li>
+                </ul>
+            </div>
+        </div>
+        <canvas id="SOSGame"></canvas>
     </div>
 
     <script type="text/javascript" src='script.js'></script>
