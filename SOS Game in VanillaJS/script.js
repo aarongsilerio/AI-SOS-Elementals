@@ -69,8 +69,8 @@ function simulateFire(board, x, y) {
             tile.status.explosionFrame = 12; // Trigger red flash animation
             tile.status.destroyed = true; // Mark tile as destroyed
 
-            // Play burn sound
-            GameDisplay.playBurnSound();
+            // // Play burn sound
+            // GameDisplay.playBurnSound();
 
             // Reset the tile after the Fire effect
             setTimeout(() => {
@@ -100,7 +100,7 @@ const effectScores = {
     Earth: 1   // Earth adds +1 to the score
 };
 
-function expectiminimaxFire(state, depth, isMaxPlayer) {
+function expectiminimax(state, depth, isMaxPlayer) {
     if (depth === 0 || state.isFull()) {
         return state.evaluate();
     }
@@ -115,7 +115,7 @@ function expectiminimaxFire(state, depth, isMaxPlayer) {
                     ['S', 'O'].forEach(os => {
                         let nextState = state.clone();
                         nextState.board.makeMove(i, j, os);
-                        let eval = expectiminimaxFire(nextState, depth - 1, false);
+                        let eval = expectiminimax(nextState, depth - 1, false);
                         maxEval = Math.max(maxEval, eval);
                     });
                 }
@@ -172,8 +172,8 @@ function simulateIce(board, x, y) {
         tile.status.frozen = 1; // Freeze for 3 turns
         tile.status.effectApplied = true; // Mark as applied
 
-        // Play freeze sound
-        GameDisplay.playFreezeSound();
+        // // Play freeze sound
+        // GameDisplay.playFreezeSound();
         console.log(`Ice froze tile at (${nx}, ${ny})`);
     } else {
         console.log(`No valid tiles for Ice effect at (${x}, ${y})`);
@@ -190,8 +190,8 @@ function simulateEarth(board, x, y) {
         tile.status.fortified = 3; // Shield remains for 2 turns
         tile.status.earthShield = true; // Optional visual indicator
 
-        // Play earth sound
-        GameDisplay.playEarthSound();
+        // // Play earth sound
+        // GameDisplay.playEarthSound();
 
         setTimeout(() => {
             tile.status.earthShield = false;
@@ -231,14 +231,14 @@ function chooseElementalEffect(board, x, y) {
             simulatedBoard = simulateEarth(simulatedBoard, x, y);
         }
         // Add a small random factor to the evaluation.
-        const evalScore = expectiminimaxFire(new GameState(simulatedBoard), 1, false) + Math.random() * 0.1;
+        const evalScore = expectiminimax(new GameState(simulatedBoard), 1, false) + Math.random() * 0.1;
         scores[effect] = evalScore;
         if (evalScore > bestScore) {
             bestScore = evalScore;
         }
     });
     // Collect effects that are within a threshold of the best score (to allow randomness)
-    const threshold = 0.5;
+    const threshold = 0.8;
     const candidateEffects = effects.filter(effect => Math.abs(scores[effect] - bestScore) <= threshold);
 
     // Randomly choose one from the candidates
@@ -357,26 +357,27 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
     const burnSound = new Audio('burn.mp3');
     const earthSound = new Audio('earth.mp3');
     const freezeSound = new Audio('freeze.mp3');
+    const invalidSound = new Audio('invalid.mp3');
 
     // Set default volume
     backgroundMusic.volume = 0.3;
     burnSound.volume = 0.5;
     earthSound.volume = 0.5;
     freezeSound.volume = 0.5;
+    invalidSound.volume = 0.5;
 
     // Loop background music
     backgroundMusic.loop = true;
     backgroundMusic.play();
 
-    // // Volume control
-    // const volumeControl = document.getElementById('volume');
-    // volumeControl.addEventListener('input', function () {
-    //     const volume = parseFloat(this.value);
-    //     backgroundMusic.volume = volume;
-    //     burnSound.volume = volume;
-    //     earthSound.volume = volume;
-    //     freezeSound.volume = volume;
-    // });
+    // Wait for user interaction before playing background music
+    document.addEventListener('click', function startMusic() {
+        backgroundMusic.play().catch(error => {
+            console.log("Error playing background music:", error);
+        });
+        document.removeEventListener('click', startMusic); // Remove the listener after the first interaction
+    });
+
 
     /* I divide the code into Logic, Display and Control sections according to methods' functionalities for readability */
     // namespace GameDisplay
@@ -720,6 +721,11 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
             freezeSound.currentTime = 0;
             freezeSound.play();
         };
+
+        GameDisplay.playInvalidSound = function () {
+            invalidSound.currentTime = 0;
+            invalidSound.play();
+        };
     };
 
     /* I divide the code into Logic, Display and Control sections according to method functionalities for readability */
@@ -988,10 +994,24 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                     GameDisplay.chessboard.statusUpdate();
                     let element = null; // Initialize the element variable
 
-                    // Determine the elemental effect applied
-                    if (!GameDisplay.chessboard.block(bx, by).status.effectApplied) {
-                        element = applyElementalEffectWithAI(bx, by); // Assign the applied effect
-                        GameDisplay.chessboard.block(bx, by).status.effectApplied = true; // Mark as applied
+                    // Apply elemental effect if not already applied
+                    const tile = GameDisplay.chessboard.block(bx, by);
+                    if (tile && !tile.status.effectApplied) {
+                        element = applyElementalEffectWithAI(bx, by);
+                        tile.status.effectApplied = true;
+
+                        // Check if the tile is valid before playing the sound
+                        if (!tile.status.destroyed && !tile.status.frozen && !tile.partOfSOS) {
+                            if (!tile.status.destroyed && !tile.status.frozen && !tile.partOfSOS && element === 'Fire') {
+                                GameDisplay.playBurnSound();
+                            } else if (element === 'Earth') {
+                                GameDisplay.playEarthSound();
+                            } else if (element === 'Ice') {
+                                GameDisplay.playFreezeSound();
+                            }
+                        } else {
+                            GameDisplay.playInvalidSound();
+                        }
                     }
 
                     // Log the move with the correct elemental effect
@@ -1033,6 +1053,19 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                                 if (!block.status.effectApplied) {
                                     element = applyElementalEffectWithAI(i, j);
                                     block.status.effectApplied = true; // Mark as applied
+
+                                    // Check if the tile is valid before playing the sound
+                                    if (!block.status.destroyed && !block.status.frozen && !block.partOfSOS) {
+                                        if (!block.status.destroyed && !block.status.frozen && !block.partOfSOS && element === 'Fire') {
+                                            GameDisplay.playBurnSound();
+                                        } else if (element === 'Earth') {
+                                            GameDisplay.playEarthSound();
+                                        } else if (element === 'Ice') {
+                                            GameDisplay.playFreezeSound();
+                                        }
+                                    } else {
+                                       GameDisplay.playInvalidSound();
+                                    }
                                 }
 
                                 GameLogger.logMove("AI", i, j, 'S', element);
@@ -1050,6 +1083,19 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                                 if (!block.status.effectApplied) {
                                     element = applyElementalEffectWithAI(i, j);
                                     block.status.effectApplied = true;
+
+                                    // Check if the tile is valid before playing the sound
+                                    if (!block.status.destroyed && !block.status.frozen && !block.partOfSOS) {
+                                        if (!block.status.destroyed && !block.status.frozen && !block.partOfSOS && element === 'Fire') {
+                                            GameDisplay.playBurnSound();
+                                        } else if (element === 'Earth') {
+                                            GameDisplay.playEarthSound();
+                                        } else if (element === 'Ice') {
+                                            GameDisplay.playFreezeSound();
+                                        }
+                                    } else {
+                                        GameDisplay.playInvalidSound();
+                                    }
                                 }
                                 
                                 GameLogger.logMove("AI", i, j, 'O', element);
@@ -1076,15 +1122,29 @@ function loadSOSGame(canvasName, EDGE_LENGTH) {
                     }
                 }
 
-                if (moveAbleLs.length > 0) {
+            if (moveAbleLs.length > 0) {
                     var move = moveAbleLs[Math.floor(Math.random() * moveAbleLs.length)];
                     cb.makeMove(move.bx, move.by, move.os);
-                    let element = null; // Initialize the element variable
+                    let element = null;
 
                     // Apply the elemental effect if not already applied
-                    if (!cb.block(move.bx, move.by).status.effectApplied) {
+                    const block = cb.block(move.bx, move.by);
+                    if (block && !block.status.effectApplied) {
                         element = applyElementalEffectWithAI(move.bx, move.by);
-                        cb.block(move.bx, move.by).status.effectApplied = true; // Mark as applied
+                        block.status.effectApplied = true;
+
+                        // Check if the tile is valid before playing the sound
+                        if (!block.status.destroyed && !block.status.frozen && !block.partOfSOS) {
+                            if (!block.status.destroyed && !block.status.frozen && !block.partOfSOS &&element === 'Fire') {
+                                GameDisplay.playBurnSound();
+                            } else if (element === 'Earth') {
+                                GameDisplay.playEarthSound();
+                            } else if (element === 'Ice') {
+                                GameDisplay.playFreezeSound();
+                            }
+                        } else {
+                            GameDisplay.playInvalidSound();
+                        }
                     }
 
                     GameLogger.logMove("AI", move.bx, move.by, move.os, element);
